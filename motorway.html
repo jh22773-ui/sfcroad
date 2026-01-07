@@ -70,6 +70,7 @@
             style: { color: "#3388ff", weight: 2, fillOpacity: 0.2 },
             onEachFeature: (feature, layer) => {
                 const id = feature.properties.description;
+                const polygonName = feature.properties.name || "이름 없음";
                 const info = areaDict[id];
                 if (!info) return;
 
@@ -88,7 +89,7 @@
 
                 layer.bindPopup(`
                     <div class="popup-content">
-                        <strong>${info['노선']} [${info['구간']}]</strong><br>
+                        <strong>${polygonName}</strong><br>
                         <small>ID: ${id}</small>
                         ${mgrHtml}
                     </div>
