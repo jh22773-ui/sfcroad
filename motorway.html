@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>서울시설공단 도로관리 스마트 지도</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; font-family: sans-serif; }
+        #map { width: 100%; height: 100vh; }
+        .control-panel { position: absolute; top: 10px; right: 10px; z-index: 1000; display: flex; flex-direction: column; gap: 5px; }
+        .btn { background: white; padding: 12px; border: 2px solid #0055ff; border-radius: 8px; cursor: pointer; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+        .popup-content { line-height: 1.6; min-width: 200px; }
+        .mgr-card { border-top: 1px solid #ddd; padding-top: 5px; margin-top: 5px; font-size: 0.9em; }
+        .band-btn { background: #22B14C; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; float: right; }
+    </style>
+</head>
+<body>
+
+<div id="map"></div>
+<div class="control-panel">
+    <button class="btn" onclick="locateAndIdentify()">📍 현위치 구역 찾기</button>
+</div>
+
+<script>
+    // [설정] 발급받은 주소들을 여기에 넣으세요
+    const CONFIG = {
+        vworldKey: ' 0455D45E-0A54-3DFE-9E2A-553B28DC6842',
+        areaCsvUrl: './sector.csv',
+        managerCsvUrl: './manager.csv',
+        geoJsonUrl: './geodata.json'
+    };
+
+    let map, managerDict = {}, areaDict = {}, roadLayer;
+
+    // 1. 지도 초기화
+    map = L.map('map').setView([37.5665, 126.9780], 12);
+    L.tileLayer(`https://api.vworld.kr/req/wmts/1.0.0/${CONFIG.vworldKey}/Base/{z}/{y}/{x}.png`).addTo(map);
+
+    // 2. 데이터 로드 프로세스 (매니저 -> 구역 -> 지도 순서)
+    async function initSystem() {
+        try {
+            // 담당자 정보 로드
+            const mData = await fetchCSV(CONFIG.managerCsvUrl);
+            mData.forEach(m => { managerDict[m['담당자명']] = m; });
+
+            // 구역 정보 로드
+            const aData = await fetchCSV(CONFIG.areaCsvUrl);
+            aData.forEach(a => { areaDict[a['description']] = a; });
+
+            // 지도 폴리곤 로드
+            const response = await fetch(CONFIG.geoJsonUrl);
+            const geoJsonData = await response.json();
+            drawPolygons(geoJsonData);
+        } catch (e) { console.error("데이터 로드 실패:", e); }
+    }
+
+    function fetchCSV(url) {
+        return new Promise((resolve) => {
+            Papa.parse(url, { download: true, header: true, complete: (results) => resolve(results.data) });
+        });
+    }
+
+    // 3. 폴리곤 그리기 및 팝업 설정
+    function drawPolygons(data) {
+        roadLayer = L.geoJSON(data, {
+            style: { color: "#3388ff", weight: 2, fillOpacity: 0.2 },
+            onEachFeature: (feature, layer) => {
+                const id = feature.properties.description;
+                const info = areaDict[id];
+                if (!info) return;
+
+                let mgrHtml = '';
+                ['담당자1', '담당자2', '담당자3', '담당자4'].forEach(key => {
+                    const name = info[key];
+                    const details = managerDict[name];
+                    if (name) {
+                        mgrHtml += `
+                        <div class="mgr-card">
+                            <b>${name}</b> (${details ? details['연락처'] : '번호없음'})
+                            <br><small>${details ? details['소속팀'] : '-'}</small>
+                        </div>`;
+                    }
+                });
+
+                layer.bindPopup(`
+                    <div class="popup-content">
+                        <strong>${info['노선']} [${info['구간']}]</strong><br>
+                        <small>ID: ${id}</small>
+                        ${mgrHtml}
+                    </div>
+                `);
+            }
+        }).addTo(map);
+    }
+
+    // 4. GPS 위치 기반 구역 찾기 (Turf.js 활용)
+    function locateAndIdentify() {
+        map.locate({setView: true, maxZoom: 16});
+        map.on('locationfound', (e) => {
+            const userPt = turf.point([e.longitude, e.latitude]);
+            let found = false;
+
+            roadLayer.eachLayer(layer => {
+                if (turf.booleanPointInPolygon(userPt, layer.feature)) {
+                    layer.openPopup();
+                    found = true;
+                }
+            });
+            if(!found) alert("현재 도로 구역 내에 있지 않습니다.");
+        });
+    }
+
+
+
+    initSystem();
+</script>
+</body>
+</html>
